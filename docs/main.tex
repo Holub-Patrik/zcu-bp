@@ -1,0 +1,660 @@
+\documentclass[12pt, a4paper]{report}
+
+% Nastavení českého jazyka
+\usepackage[czech]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage{csquotes}
+% \usepackage[IL2]{fontenc}
+
+% \usepackage{parskip}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{xltabular}
+\usepackage{float}
+\usepackage{titlesec}
+\usepackage{hhline}
+\usepackage{menukeys}
+% If pdf is used, then the fonts can destroyed
+% \usepackage[inkscapeformat=png]{svg}
+% \usepackage{svg}
+\usepackage{tikz}
+\usetikzlibrary{shadows,positioning,shapes,arrows.meta,decorations.pathreplacing,calc,babel}
+
+\usepackage[
+  backend=biber,
+  style=ieee,
+  sorting=ynt
+]{biblatex}
+\addbibresource{refs.bib}
+
+\titleformat{\chapter}[block]
+{\normalfont\Huge\bfseries}{\thechapter\ }{0pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{-2cm}{10pt}
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{4}
+
+\graphicspath{{./}}
+
+\usepackage[indent=0pt]{parskip}
+
+\begin{document}
+\pagenumbering{gobble}
+
+\begin{center}
+  \includegraphics[width=\textwidth]{FAV}
+
+  \vspace{\fill}
+  \normalsize{Katedra informatiky a výpočetní techniky}\break
+  \Large{\textbf{Komunikační periferie pro emulátor\break Raspberry Pi Zero}}
+
+  \vspace{\fill}
+  \normalsize{Autor: Patrik Holub\hspace{\fill}Datum: 14 Ledna 2026}
+\end{center}
+\newpage
+\chapter*{Prohlášení}
+Prohlašuji, že jsem bakalářskou práci vypracoval samostatně a výhradně
+s použitím citovaných pramenů.
+
+\vspace{30pt}
+
+V Plzni dne 14. Ledna 2026 \hspace{\fill} Patrik Holub
+% \chapter{Poděkování}
+\chapter*{Abstract}
+We designed and implemented a library to facilitate communication between multiple instances of Raspberry Pi
+Zero emulator. The library is presented transparently as a peripheral device to the emulator, meaning the
+running program doesn't realize, how the communication to the other device is facilitated. This allows to
+create a distributed network of emulators, all thinking, they are wired together directly, improving
+simulation capabalities of said emulator.
+\newpage
+
+\pagenumbering{arabic}
+\setcounter{page}{4}
+\tableofcontents
+% \listoftables
+% \listoffigures
+\newpage
+
+% Úvod - 1 stránka, intro do emulace, motivace
+% Emulátor ZeroMate - rozbor emulátoru, současných funkcí a rozhraní komponent
+% Komunikační protokoly vestavěných zařízení - přehled základních protokolů,
+% které obvykle MCU obsahují nebo jinak podporují (UART,I2C, SPI,
+% OneWire, možná zmínit i Ethernet)
+% Závěr - jeden odstavec pro potřeby PRJ5, kde jen shrnete, co jste napsal
+
+\chapter{Úvod}
+Při vývoji softwaru pro specifická fyzická zařízení (tzv. embedded systémy) naráží vývojáři na překážky,
+které u běžných desktopových aplikací neexistují. Příklady mohou být přístupnost k cílovému hardwaru, šance
+poškození hardwaru, rychlost testování softwaru (iterační cyklus), nebo třeba cenové problémy, kvůli nutnosti
+více zařízení.
+
+Typickým příkladem nepřístupnosti cílového hardwaru je situace, kdy je laboratoř s prototypy zařízení v jiném
+městě, než kde programátor reálně žije nebo pracuje. V takovém případě je efektivní práce bez vzdáleného
+přístupu nebo alternativního řešení téměř nemožná. Navíc, testovacích zařízení bývá často omezené množství,
+což brzdí práci v týmu, kdy musí více programátorů čekat na uvolnění jednoho kusu hardwaru. Počet zařízení
+také může vytvářet omezení pokud je software mířený na distribuované prostředí.
+
+Dalším kritickým aspektem vývoje pro fyzická zařízení je riziko poškození hardwaru chybou v softwaru. Zatímco
+chyba v běžném programu maximálně způsobí pád aplikace, špatná manipulace s piny nebo napětím na
+mikrokontroléru může vést k nevratnému zničení součástek.
+
+S rostoucími požadavky na komplexitu dnešních systémů je navíc prakticky nemožné provést stoprocentní analýzu
+kódu a garantovat jeho správnost ve všech teoretických stavech čistě "na papíře". I při sebelepší kontrole se
+mohou vyskytnout chyby v místech, kde je programátor vůbec nepředpokládá (tzv. edge cases). Ve fyzickém světě
+může taková neočekávaná chyba vést k elektrickému zkratu a "odpálení" drahého prototypu.
+
+Právě zde přichází na řadu emulace, která tato rizika eliminuje. Jelikož je emulátor čistě softwarová
+záležitost, nemůže dojít k žádné fyzické škodě, ať už se program chová jakkoliv nepředvídatelně. Zároveň lze
+na jednom zařízení spustit více instancí emulátoru, čímž je možné simulovat distribuované systémy.
+
+Právě zde přichází naše práce, jejímž cílem je vytvořit periferii, která je schopná zajistit komunikaci mezi
+více instancemi emulátoru. Cílem je také zajistit, aby tato komunikace probíhala transparentně, neboli aby
+programu běžícímu v emulátoru bylo jedno, jestli je opravdu připojena periferie, kterou očekává, nebo jestli
+periferie běží na jiném stroji. Stroje mohou být odděleny i internetovou sítí a emulátoru by to mělo být
+jedno. Tato možnost by měla zajistit možnost simulovat silně distribuovaný systém za pomoci výpočetních serverů.
+
+\chapter{Emulátor ZeroMate}
+Emulátor ZeroMate, v jeho stavu před touto prací, vznikl jako diplomová práce pana Ing. Jakuba
+Šilhavého~\cite{mt:zeromate}. Jde o emulátor, který vznikl pro emulaci operačního systému
+KIV-RTOS~\cite{web:kiv-rtos}, vyvinutého pro zařízení Raspberry Pi Zero W (deska odvozená z BCM2835). Tento
+mikrokontrér disponuje procesorem, který používá architekturu ARM, specificky ARMv6. ARM je achitektura,
+spadající do skupiny RISC (Reduced Instruction Set Computer). Jde o architekturu počítače, kdy sada
+instrukcí je menší a každá instrukce má fixní délku. Jde o jednodušší přístup k výpočetní technice než CISC
+(Complex Instruction Set Computer). RISC umožňuje vytvořit processor, kde části jako dekodér nebo ALU mají
+redukovanou komplexitu, což vede k energetickým úsporám. Tyto výhody posunuli ARM na technologii, která
+pohání 99\% mobilních telefonů na celém světě~\cite{web:team}.
+
+Emulátor vznikl, kvůli požadavkům na detailní introspekci do běhu programu. Zároveň se soustředí pouze na
+ARMv6, což vytváří velmi specializovaný nástroj. Tato nutnost bylo spozorována při porovnání emulátorů
+dostupných v době kdy byla diplomová práce sepsána. Ostatní nástroje buď nemají pokročilé introspekce, nebo
+ve snaze být systémy, schopné emulovat mnoho jiných architektur, mají problémy replikovat specifické situace
+vestavěných zařízení. Cíl práce byl hlavně emulovat operační systém KIV-RTOS, který je sám tvořen pro jeden
+typ hardwaru. Jde o operační systém používaný a vyvíjený v univerzitním prostředí, kde problémy zmíněné v
+úvodu jsou velmi časté.
+
+\section{Přehled architektury}
+\subsection{Vstup a načítání programu}
+Vstupem pro emulátor je soubor ve formátu ELF (Executable and Linkage Format). Tento formát byl zvolen pro
+svou schopnost uchovávat jak spustitelný kód, tak ladicí symboly, což usnadňuje disasemblování a následnou
+vizualizaci běhu programu. Komponenta \textit{ELF Loader} je zodpovědná za parsování tohoto souboru,
+kopírování textové sekce do emulované paměti RAM a demangling symbolů pro čitelnější výpis funkcí.
+
+\subsection{Jádro emulátoru}
+Jádro emulátoru se skládá z několika klíčových, vzájemně spolupracujících komponent:
+
+\begin{itemize}
+  \item \textbf{Systémová sběrnice:} Slouží jako centrální komunikační rozhraní pro zařízení. Zprostředkovává
+    čtení a zápis mezi CPU a pamětí nebo periferiemi. Udržuje seznam všech mapovaných periferií a zajišťuje
+    směrování požadavků na správnou adresu.
+  \item \textbf{CPU (ARM1176JZF-S):} Hlavní výpočetní jednotka, která je dále dekomponována na:
+    \begin{itemize}
+      \item \textit{ISA Decoder:} Identifikuje typ instrukce z 32-bitového kódu.
+      \item \textit{ALU a MAC:} Provádí aritmetické a logické operace.
+      \item \textit{CPU Context:} Uchovává stav registrů (včetně bankovaných registrů pro různé módy CPU) a
+        aktuální mód procesoru.
+      \item \textit{MMU (Memory Management Unit):} Zajišťuje překlad virtuálních adres na fyzické pomocí
+        jedúrovňové tabulky stránek (v rámci zjednodušení emulátoru).
+    \end{itemize}
+  \item \textbf{Koprocesory:} Emulátor implementuje coprocesor CP15 pro konfiguraci
+    systému a CP10 pro operace s plovoucí řádovou čárkou (FPU).
+  \item \textbf{Paměť (RAM):} Implementována jako souvislý blok paměti o velikosti 512 MB.
+\end{itemize}
+
+\subsection{Interní periferie BCM2835}
+Emulátor simuluje vybrané interní periferie mikrokontroléru BCM2835, které jsou mapovány do paměťového
+prostoru. Mezi nejdůležitější patří:
+\begin{itemize}
+  \item \textbf{Interrupt Controller:} Spravuje přerušení z různých zdrojů (GPIO, časovače, UART).
+  \item \textbf{GPIO Manager:} Řídí stav 54 univerzálních I/O pinů.
+  \item \textbf{ARM Timer:} Poskytuje časovací funkce odvozené od taktů emulovaného CPU.
+  \item \textbf{UART a I2C (BSC):} Zajišťují sériovou komunikaci.
+\end{itemize}
+
+\section{Práce s externími periferiemi}
+
+Jedním z hlavních cílů návrhu emulátoru ZeroMate byla jeho rozšiřitelnost o uživatelsky definované externí
+periferie (např. tlačítka, LED diody, displeje), které nejsou součástí samotného čipu SoC, ale jsou k němu
+připojeny v reálném světě. Tato funkcionalita je klíčová pro věrnou simulaci vestavěných systémů.
+
+\subsection{Architektura externích periferií}
+Externí periferie jsou řešeny pomocí samostatné dynamické knihovny (sdílené knihovny .dll na Windows
+nebo .so na Linuxu). Toto řešení umožňuje:
+\begin{enumerate}
+  \item Vývoj periferií nezávisle na jádře emulátoru.
+  \item Možnost připojení více instancí stejné periferie (např. více LED diod).
+  \item Konfiguraci zapojení bez nutnosti rekompilace emulátoru.
+\end{enumerate}
+
+% Terrible sentence but if I don't do this -> overfull box
+Implementace externí periferie musí odpovídat definovanému programovému rozhraní (\texttt{IExternal\_Peripheral}).
+Jádro emulátoru při startu načte tyto knihovny na základě konfiguračního souboru.
+
+\subsection{Rozhraní a komunikace}
+Komunikace mezi emulátorem a externí periferií probíhá primárně přes simulované GPIO piny a systémové hodiny.
+
+\subsubsection{Napojení na GPIO}
+Při inicializaci periferie volá emulátor metodu z výše zmíněného rozhraní \texttt{Get\_GPIO\_Subscription},
+prostřednictvím které periferie sdělí, které GPIO piny chce sledovat.
+
+Pokud dojde ke změně stavu GPIO pinu (nastavení pinu na HIGH nebo LOW), emulátor iteruje přes
+všechny připojené externí periferie. Pokud periferie odebírá daný pin, tak je zavolána obslužná metoda.
+Perieferie musí tuto metodu rychle obsloužit, a vrátit řízení emulátoru. V tomto ohledu se jedná o podobný
+princip jako u interruptů. Každá periferie si tedy napíše obsluhu změny pinu, kterou požije např. k
+rozsvícení LED. Komunikace je obousměrná – externí periferie může také měnit stav pinu (např. stisk
+virtuálního tlačítka změní stav pinu na LOW), což může vyvolat přerušení v jádře emulátoru.
+
+\subsubsection{Synchronizace času a hodin}
+Externí periferie nemají vlastní zdroj hodin v reálném čase, ale jsou synchronizovány s emulovaným časem CPU.
+Periferie dostávají informaci o počtu proběhlých cyklů CPU po vykonání každé instrukce (nebo bloku instrukcí).
+Toto je kritické pro periferie, které závisí na časování, jako jsou sériové terminály nebo displeje
+komunikující přes I2C, kde je nutné dodržet specifické časování protokolu.
+
+\subsection{Konfigurace zapojení (peripherals.json)}
+Zapojení periferií je definováno v souboru \texttt{peripherals.json}. Tento soubor určuje jak by
+měl emulátor načíst periferii. Hlavní části jsou:
+\begin{itemize}
+  \item \textbf{Cesta k knihovně:} Kde se nachází soubor .dll/.so.
+  \item \textbf{Název:} Unikátní identifikátor instance.
+  \item \textbf{Propojení:} Mapování logických pinů periferie na fyzické GPIO piny emulátoru
+    (např. připojení LED na GPIO pin 47).
+\end{itemize}
+
+\subsection{Grafické rozhraní externích periferií}
+Ačkoliv to není povinné, externí periferie mohou implementovat vlastní grafické rozhraní. Emulátor jim
+poskytuje kontext pro vykreslování (využívající knihovnu ImGui), což jim umožňuje vizualizovat svůj stav
+(např. svítící segmenty na 7-segmentovém displeji nebo text na OLED displeji) přímo v okně aplikace ZeroMate.
+
+\chapter{Komunikační protokoly}
+\section{UART}
+UART (Universal Asynchronous Receiver-Transmitter) představuje jeden z nejzákladnějších komunikačních
+standardů, který se v oblasti mikrokontrolerů využívá pro sériový přenos dat. Jak již název napovídá, jedná
+se o asynchronní komunikaci, což znamená, že mezi vysílačem a přijímačem není veden žádný sdílený hodinový
+signál. Aby byla komunikace úspěšná, musí se obě strany předem dohodnout na přesné přenosové rychlosti,
+udávané v baudech (Baud Rate). Časování vzorkování signálu je pak odvozováno interně z vlastního zdroje hodin
+každého zařízení, což klade nároky na přesnost těchto oscilátorů.
+
+Fyzická vrstva je tvořena dvěma datovými vodiči, obvykle označovanými jako RX (příjem) a TX (vysílání), které
+jsou mezi zařízeními zapojeny křížově. V klidovém stavu, kdy neprobíhá žádný přenos, je linka udržována na
+logické úrovni jedna (High).~\cite{web:uart}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      node distance=2cm,
+      mcu/.style={draw, fill=gray!10, rectangle, rounded corners, minimum width=3.5cm, minimum height=3.5cm,
+      align=center},
+      pin/.style={font=\footnotesize},
+      signal/.style={thick, draw=black},
+      axis/.style={->, >=latex},
+      bitlabel/.style={font=\tiny, gray, anchor=south}
+    ]
+
+    \node[mcu] (dev1) {\textbf{MCU A}\\(Master)};
+    \node[mcu, right=5cm of dev1] (dev2) {\textbf{MCU B}\\(Slave)};
+
+    \node[pin, anchor=east] at ($(dev1.east)+(0, 0.5)$) (tx1) {TX};
+    \node[pin, anchor=east] at ($(dev1.east)+(0, -0.5)$) (rx1) {RX};
+
+    \node[pin, anchor=west] at ($(dev2.west)+(0, -0.5)$) (tx2) {TX};
+    \node[pin, anchor=west] at ($(dev2.west)+(0, 0.5)$) (rx2) {RX};
+
+    \draw[->, thick, blue!70!black] (tx1.east) -- ++(1,0) -- ($(rx2.west)+(-1,0)$) -- (rx2.west);
+    \draw[->, thick, red!70!black] (tx2.west) -- ++(-1,0) -- ($(rx1.east)+(1,0)$) -- (rx1.east);
+
+    \node[font=\footnotesize, blue!70!black, above] at ($(tx1.east)!0.5!(rx2.west)$) {Data (A $\to$ B)};
+    \node[font=\footnotesize, red!70!black, below] at ($(tx2.west)!0.5!(rx1.east)$) {Data (B $\to$ A)};
+  \end{tikzpicture}
+  \caption{Schéma zapojení UART}
+  \label{fig:uart_diagram_connection}
+\end{figure}
+
+Samotný přenos zprávy, neboli rámce, je vždy zahájen tzv. start bitem. Ten změní
+úroveň linky na logickou nulu, čímž synchronizuje přijímač a připraví ho na čtení nadcházejících dat.
+Následuje samotná datová část rámce, která se skládá typicky z osmi bitů, přičemž standardem je odesílání od
+nejméně významného bitu (LSB) po ten nejvýznamnější. Za daty může následovat volitelný paritní bit, který
+slouží k základní kontrole integrity přenosu a detekci chyb. Celý rámec je ukončen jedním nebo dvěma stop
+bity, které vrací linku zpět do klidového stavu logické jedničky. Tato pauza je nezbytná, aby přijímač mohl
+správně detekovat začátek dalšího případného start bitu.~\cite{web:uart}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      scale=0.9,
+      node distance=2cm,
+      mcu/.style={draw, fill=gray!10, rectangle, rounded corners, minimum width=3.5cm, minimum height=3.5cm,
+      align=center},
+      pin/.style={font=\footnotesize},
+      signal/.style={thick, draw=black},
+      axis/.style={->, >=latex},
+      bitlabel/.style={font=\tiny, gray, anchor=south}
+    ]
+    % Osa času
+    \draw[axis] (-1,0) -- (10.5,0) node[right] {$t$};
+    \node[anchor=east] at (-1.5,0) {Log. 0};
+    \node[anchor=east] at (-1.5,1) {Log. 1};
+    % Vykreslení signálu
+    \draw[signal] (-1,1) -- (0,1) % Idle
+    -- (0,0) -- (1,0) % Start Bit
+    -- (1,1) -- (2,1) % D0 (1)
+    -- (2,1) -- (3,1) % D1 (1)
+    -- (3,0) -- (4,0) % D2 (0)
+    -- (4,0) -- (5,0) % D3 (0)
+    -- (5,1) -- (6,1) % D4 (1)
+    -- (6,0) -- (7,0) % D5 (0)
+    -- (7,1) -- (8,1) % D6 (1)
+    -- (8,0) -- (9,0) % D7 (0)
+    -- (9,1) -- (10.5,1); % Stop Bit + Idle
+
+    \foreach \x in {0,1,...,9} {
+      \draw[dotted, gray!50] (\x, -0.2) -- (\x, 1.2);
+    }
+    % Popisky bitů
+    \node[bitlabel] at (0.5, 1.1) {Start};
+    \node[bitlabel] at (1.5, 1.1) {D0};
+    \node[bitlabel] at (2.5, 1.1) {D1};
+    \node[bitlabel] at (3.5, 1.1) {D2};
+    \node[bitlabel] at (4.5, 1.1) {D3};
+    \node[bitlabel] at (5.5, 1.1) {D4};
+    \node[bitlabel] at (6.5, 1.1) {D5};
+    \node[bitlabel] at (7.5, 1.1) {D6};
+    \node[bitlabel] at (8.5, 1.1) {D7};
+    \node[bitlabel] at (9.5, 1.1) {Stop};
+
+    % Svorky pro popis částí rámce
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror, raise=5pt}, gray] (0,0) -- (1,0) node[midway,
+    yshift=-15pt, font={\scriptsize}] {Synchronizace};
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror, raise=5pt}, gray] (1,0) -- (9,0) node[midway,
+    yshift=-15pt, font={\scriptsize}] {Datový rámec (8 bitů)};
+    \draw[decorate, decoration={brace, amplitude=5pt, mirror, raise=5pt}, gray] (9,0) -- (10,0)
+    node[midway, yshift=-15pt, font={\scriptsize}] {Ukončení};
+
+  \end{tikzpicture}
+  \caption{Časový průběh přenosu znaku 'S' (0x53, LSB first)}
+  \label{fig:uart_diagram_transfer}
+\end{figure}
+
+Z hlediska hardwarové implementace uvnitř mikrokontroleru je klíčovým prvkem posuvný registr (shift
+register). Procesor zapíše celá data (například jeden bajt) paralelně do vyrovnávacího registru. Hardware
+UART periferie následně tato data přesune do posuvného registru, odkud jsou v přesně daném taktu vysouvána na
+výstupní pin po jednotlivých bitech. Na straně příjmu funguje proces opačně, kdy jsou jednotlivé bity
+postupně nasouvány do registru, dokud není sestaven celý bajt, který je následně zpřístupněn procesoru ke čtení.
+
+\section{I2C}
+Protokol I2C (Inter-Integrated Circuit), je synchronní sériová sběrnice určená pro komunikaci na krátké
+vzdálenosti. Na rozdíl od UARTu, který spojuje pouze dvě zařízení, je I2C sběrnicí, což umožňuje připojení
+vícero zařízení na stejné komunikační linky. Architektura
+je založena na vztahu Master-Slave, kde Master (řídící zařízení) iniciuje veškerou komunikaci a generuje
+hodinový signál pro synchronizaci přenosu dat. Slave (podřízené zařízení) pouze reaguje na výzvy zařízení Master.
+
+Fyzickou vrstvu tvoří dva vodiče: SDA (Serial Data) pro přenos dat a SCL (Serial Clock) pro hodinový signál.
+Klíčovou vlastností hardwarového řešení je zapojení výstupů jako tzv. otevřený kolektor (open-drain
+~\cite{man:pullup}). To znamená, že zařízení mohou linku pouze stáhnout na logickou nulu (uzemnit), ale
+nemohou ji aktivně vybudit do logické jedničky. Klidový stav logické jedničky je zajištěn externími pull-up
+rezistory~\cite{man:pullup} (v schématu \ref{fig:i2c_diagram} označeny jako $R_p$), které linky drží na
+napájecím napětí, pokud žádné zařízení nevysílá nulu. Toto zapojení zabraňuje zkratům v případě, že by více
+zařízení omylem vysílalo opačné hodnoty současně, a umožňuje funkce jako "clock stretching", kdy pomalejší
+Slave může podržením linky SCL na nule pozastavit komunikaci.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      device/.style={draw, fill=gray!10, rectangle, rounded corners, minimum width=2.5cm, minimum
+      height=1.5cm, align=center},
+      bus/.style={thick},
+      dot/.style={fill=black, circle, inner sep=1.5pt},
+      resistor/.style={draw, fill=white, rectangle, minimum width=0.6cm, minimum height=0.8cm}
+    ]
+
+    \node[device] (master) {Master\\(MCU)};
+    \node[device, right=2.5cm of master] (slave1) {Slave 1\\(Senzor)};
+    \node[device, right=1.2cm of slave1] (slave2) {Slave 2\\(Paměť)};
+
+    \draw[bus] ($(master.west)+(-0.5, 2)$) -- ($(slave2.east)+(0.5, 2)$) node[right] {SDA};
+    \draw[bus] ($(master.west)+(-0.5, 2.8)$) -- ($(slave2.east)+(0.5, 2.8)$) node[right] {SCL};
+
+    \draw[thick, gray] ($(master.west)+(0.5, 4.8)$) -- ($(master.west)+(2.0, 4.8)$) node[right, black] {VCC};
+
+    \node[dot] at ($(master.west)+(0.8, 2.8)$) {};
+    \draw ($(master.west)+(0.8, 2.8)$) -- ($(master.west)+(0.8, 3.6)$);
+    \draw[fill=white] ($(master.west)+(0.5, 3.6)$) rectangle ($(master.west)+(1.1, 4.4)$) node[midway,
+    font={\tiny}] {$R_p$};
+    \draw ($(master.west)+(0.8, 4.4)$) -- ($(master.west)+(0.8, 4.8)$);
+
+    \node[dot] at ($(master.west)+(1.6, 2.0)$) {};
+    \draw ($(master.west)+(1.6, 2.0)$) -- ($(master.west)+(1.6, 3.6)$);
+    \draw[fill=white] ($(master.west)+(1.3, 3.6)$) rectangle ($(master.west)+(1.9, 4.4)$) node[midway,
+    font={\tiny}] {$R_p$};
+    \draw ($(master.west)+(1.6, 4.4)$) -- ($(master.west)+(1.6, 4.8)$);
+
+    \draw (master.north -| {$(master.west)+(0.4,0)$}) -- ($(master.west)+(0.4, 2.8)$); % SCL
+    \node[dot] at ($(master.west)+(0.4, 2.8)$) {};
+    \draw (master.north -| {$(master.west)+(1.2,0)$}) -- ($(master.west)+(1.2, 2)$); % SDA
+    \node[dot] at ($(master.west)+(1.2, 2)$) {};
+
+    \draw (slave1.north -| {$(slave1.west)+(0.4,0)$}) -- ($(slave1.west)+(0.4, 2.8)$);
+    \node[dot] at ($(slave1.west)+(0.4, 2.8)$) {};
+    \draw (slave1.north -| {$(slave1.west)+(0.8,0)$}) -- ($(slave1.west)+(0.8, 2)$);
+    \node[dot] at ($(slave1.west)+(0.8, 2)$) {};
+
+    \draw (slave2.north -| {$(slave2.west)+(0.4,0)$}) -- ($(slave2.west)+(0.4, 2.8)$);
+    \node[dot] at ($(slave2.west)+(0.4, 2.8)$) {};
+    \draw (slave2.north -| {$(slave2.west)+(0.8,0)$}) -- ($(slave2.west)+(0.8, 2)$);
+    \node[dot] at ($(slave2.west)+(0.8, 2)$) {};
+
+  \end{tikzpicture}
+  \caption{Topologie sběrnice I2C}
+  \label{fig:i2c_diagram}
+\end{figure}
+
+Komunikace je zahájena specifickou sekvencí zvanou Start Condition~\cite{man:i2c}, kdy Master stáhne datovou
+linku SDA do nuly, zatímco hodinová linka SCL je stále v logické jedničce. Následuje vysílání adresy zařízení, se kterým
+chce Master komunikovat. Adresa je typicky 7-bitová, což umožňuje teoreticky adresovat až 128 zařízení. Osmý
+bit v prvním bajtu určuje směr komunikace (čtení nebo zápis). Pokud cílové zařízení na sběrnici existuje,
+potvrdí přijetí adresy stažením linky SDA v devátém hodinovém taktu, což se nazývá ACK~\cite{man:i2c}.
+
+Samotná data jsou přenášena po bajtech, přičemž každý bajt musí být potvrzen přijímací stranou pomocí bitu
+ACK. Přenos probíhá synchronně s hodinovým signálem na lince SCL, kdy se stav datové linky SDA může měnit
+pouze v době, kdy je SCL na logické nule. Během vysoké úrovně hodin musí být data stabilní. Ukončení
+komunikace provede Master sekvencí Stop Condition, při které uvolní linku SDA do logické jedničky v momentě,
+kdy je SCL také v jedničce.
+
+\section{SPI}
+SPI (Serial Peripheral Interface) je vysokorychlostní synchronní sériové rozhraní, které se využívá především
+pro komunikaci mezi mikrokontrolerem a rychlými perifériemi, jako jsou SD karty, LCD displeje nebo senzory s
+vysokou vzorkovací frekvencí. Na rozdíl od I2C, SPI nevyužívá systém adresování ani potvrzování přijatých dat
+(ACK/NACK), což minimalizuje režii a umožňuje dosahovat mnohem vyšších datových toků. Komunikace probíhá v
+režimu Full-Duplex~\cite{web:spi}, což znamená, že data jsou současně vysílána i přijímána.
+
+Populární a velmi časté fyzické zapojení vyžaduje čtyři vodiče~\cite{web:spi}. Linka \texttt{SCLK} (Serial
+Clock) přenáší hodinový signál. Hodiny jsou řízené zařízením Master.
+Data od Master zařízení k Slave zařízení proudí po vodiči \texttt{MOSI} (Master Out Slave In), zatímco
+opačným směrem slouží vodič \texttt{MISO} (Master In Slave Out). Pro výběr zařízení na sběrnici se používá
+dedikovaná linka \texttt{CS} nebo \texttt{SS} (Chip/Slave Select). Protože SPI nemá adresní systém, musí mít každé
+Slave zařízení vlastní CS vodič vedoucí k Master zařízení. Aktivací této linky (obvykle stažením do logické nuly)
+Master dává zařízení najevo, že s ním hodlá komunikovat.~\cite{web:spi}
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      device/.style={draw, fill=gray!10, rectangle, rounded corners, minimum width=3.5cm, minimum
+      height=3.0cm, align=center},
+      bus/.style={thick},
+      dot/.style={fill=black, circle, inner sep=1.5pt},
+      pin_label/.style={font=\tiny, anchor=east}
+    ]
+
+    \node[device] (master) at (0,0) {Master\\(MCU)};
+
+    % Slaves (dole, posunuté doprava)
+    \node[device] (slave1) at (5, -3.5) {Slave 1};
+    \node[device] (slave2) at (9, -3.5) {Slave 2};
+    % SCLK
+    \draw[bus] ($(master.east)+(0, 1.2)$) -- (10.5, 1.2) node[right, font=\footnotesize] {SCLK};
+    \node[pin_label] at ($(master.east)+(0, 1.2)$) {SCLK};
+    % MOSI
+    \draw[bus] ($(master.east)+(0, 0.6)$) -- (10.5, 0.6) node[right, font=\footnotesize] {MOSI};
+    \node[pin_label] at ($(master.east)+(0, 0.6)$) {MOSI};
+    % MISO
+    \draw[bus] ($(master.east)+(0, 0.0)$) -- (10.5, 0.0) node[right, font=\footnotesize] {MISO};
+    \node[pin_label] at ($(master.east)+(0, 0.0)$) {MISO};
+    % CS1
+    \draw[bus, blue!70!black] ($(master.east)+(0, -0.6)$) -- (5, -0.6);
+    \node[pin_label] at ($(master.east)+(0, -0.6)$) {CS1};
+    % CS2
+    \draw[bus, red!70!black] ($(master.east)+(0, -1.2)$) -- (9, -1.2);
+    \node[pin_label] at ($(master.east)+(0, -1.2)$) {CS2};
+    \draw ($(slave1.north)+(-0.8, 0)$) -- (-0.8 + 5, 1.2); \node[dot] at (-0.8 + 5, 1.2) {};
+    % MOSI
+    \draw ($(slave1.north)+(-0.4, 0)$) -- (-0.4 + 5, 0.6); \node[dot] at (-0.4 + 5, 0.6) {};
+    % MISO
+    \draw ($(slave1.north)+(0.0, 0)$) -- (0.0 + 5, 0.0); \node[dot] at (5, 0.0) {};
+    % CS1 (Drop)
+    \draw[blue!70!black] ($(slave1.north)+(0.8, 0)$) -- (5 + 0.8, -0.6) -- (5, -0.6);
+    % Popisek CS na Slave
+    \node[font=\tiny, below] at ($(slave1.north)+(0.8, 0)$) {CS};
+
+    % SCLK
+    \draw ($(slave2.north)+(-0.8, 0)$) -- (-0.8 + 9, 1.2); \node[dot] at (-0.8 + 9, 1.2) {};
+    % MOSI
+    \draw ($(slave2.north)+(-0.4, 0)$) -- (-0.4 + 9, 0.6); \node[dot] at (-0.4 + 9, 0.6) {};
+    % MISO
+    \draw ($(slave2.north)+(0.0, 0)$) -- (0.0 + 9, 0.0); \node[dot] at (9, 0.0) {};
+    \draw[red!70!black] ($(slave2.north)+(0.8, 0)$) -- (9 + 0.8, -1.2) -- (9, -1.2);
+    \node[font=\tiny, below] at ($(slave2.north)+(0.8, 0)$) {CS};
+
+  \end{tikzpicture}
+  \caption{Topologie SPI}
+  \label{fig:spi_diagram}
+\end{figure}
+
+Zpráva u SPI není pevně definována do rámců s pevnou délkou jako u UARTu. Délka přenosu závisí čistě na
+Master zařízení, které generuje tolik taktů hodin, kolik bitů potřebuje přenést. Hardwarově je SPI realizováno
+pomocí dvojice posuvných registrů – jeden v Master a jeden ve Slave zařízení. Tyto registry jsou vzájemně
+propojeny do kruhu přes linky MOSI a MISO. S každým taktem hodin je jeden bit vysunut z Master do Slave a
+současně je jeden bit vysunut ze Slave do Master~\cite{web:spi}. Po osmi taktech (při přenosu bajtu) si tak
+obě zařízení v podstatě "vymění" obsah svých posuvných registrů.
+
+Důležitým aspektem SPI je konfigurace hodin, která se definuje pomocí polarity (CPOL) a fáze (CPHA). Nutno
+podotknout, že CPOL a CPHA nejsou fyzické vodiče na sběrnici, ale interní nastavení řadičů v Master i Slave
+zařízeních, které určují, jak mají interpretovat signály na sdílených linkách.
+
+Polarita (CPOL) určuje klidový stav linky SCLK (0 nebo 1). Fáze (CPHA) definuje, na které hraně (první nebo
+druhé v rámci cyklu) se vzorkují data. Kombinací vznikají čtyři módy (viz obr. \ref{fig:spi_modes}).
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      row_label/.style={font=\bfseries\small, anchor=east},
+      clk/.style={thick, draw=black},
+      sample_edge/.style={ultra thick, draw=red},
+      grid_line/.style={dotted, gray!50},
+      info/.style={font=\footnotesize, gray}
+    ]
+
+    % --- Mode 0: CPOL=0, CPHA=0 ---
+    \node[row_label] at (-0.5, 4.5) {Mode 0};
+    \node[info, anchor=west] at (4.5, 4.5) {Log.0: 0, \texttt{CPOL}=0, \texttt{CPHA}=0};
+    \draw[clk] (0, 4) -- (1, 4);
+    \draw[sample_edge][->] (1, 4) -- (1, 5);
+    \draw[clk] (1, 5) -- (2, 5) -- (2, 4) -- (3, 4) -- (3, 5);
+    % --- Mode 1: CPOL=0, CPHA=1 ---
+    \node[row_label] at (-0.5, 3.0) {Mode 1};
+    \node[info, anchor=west] at (4.5, 3.0) {Log.0: 0, \texttt{CPOL}=0, \texttt{CPHA}=1};
+    \draw[clk] (0, 2.5) -- (1, 2.5) -- (1, 3.5) -- (2, 3.5);
+    \draw[sample_edge][->] (2, 3.5) -- (2, 2.5);
+    \draw[clk] (2, 2.5) -- (3, 2.5) -- (3, 3.5);
+    % --- Mode 2: CPOL=1, CPHA=0 ---
+    \node[row_label] at (-0.5, 1.5) {Mode 2};
+    \node[info, anchor=west] at (4.5, 1.5) {Log.0: 1, \texttt{CPOL}=1, \texttt{CPHA}=0};
+    \draw[clk] (0, 2) -- (1, 2);
+    \draw[sample_edge][->] (1, 2) -- (1, 1);
+    \draw[clk] (1, 1) -- (2, 1) -- (2, 2) -- (3, 2) -- (3, 1);
+    % --- Mode 3: CPOL=1, CPHA=1 ---
+    \node[row_label] at (-0.5, 0.0) {Mode 3};
+    \node[info, anchor=west] at (4.5, 0.0) {Log.0: 1, \texttt{CPOL}=1, \texttt{CPHA}=1};
+    \draw[clk] (0, 0.5) -- (1, 0.5) -- (1, -0.5) -- (2, -0.5);
+    \draw[sample_edge][->] (2, -0.5) -- (2, 0.5);
+    \draw[clk] (2, 0.5) -- (3, 0.5) -- (3, -0.5);
+
+    \node[anchor=north] at (2.5, -1) {\textcolor{red}{\textbf{Červená hrana}} označuje okamžik vzorkování dat};
+  \end{tikzpicture}
+  \caption{Čtyři módy SPI}
+  \label{fig:spi_modes}
+\end{figure}
+
+\section{1-Wire}
+Protokol 1-Wire, vyvinutý společností Dallas Semiconductor, je unikátní svou minimalistickou fyzickou
+vrstvou, která pro obousměrnou komunikaci i napájení využívá jediný datový vodič a společnou zem. Tato
+vlastnost z něj činí ideální řešení pro systémy, kde je kladen důraz na nízkou cenu kabeláže a konektorů,
+nebo pro zařízení, která jsou od mikrokontroleru značně vzdálená (např. digitální teploměry DS18B20). Podobně
+jako u I2C, i zde je linka v klidu udržována v logické jedničce pomocí pull-up rezistoru a komunikace probíhá
+na principu otevřeného kolektoru.
+
+Vzhledem k absenci hodinového signálu je synchronizace mezi Master a Slave zařízeními založena na velmi
+přesnému časování jednotlivých impulzů. Komunikace začíná resetovacím pulzem, kdy Master stáhne linku na
+delší dobu k nule. Pokud je na sběrnici přítomno nějaké zařízení, odpoví tzv. prezenčním pulzem (Presence
+Pulse). Bity jsou přenášeny v definovaných časových slotech. Pro zápis logické nuly Master stáhne linku na
+delší dobu, zatímco pro zápis jedničky ji uvolní velmi rychle. Čtení probíhá tak, že Master linku krátce
+stáhne a následně vzorkuje její stav v přesně daném okamžiku, kdy ji Slave buď drží u země (nula), nebo nechá
+v jedničce.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+      device/.style={draw, fill=gray!10, rectangle, rounded corners, minimum width=2.5cm, minimum
+      height=1.5cm, align=center},
+      bus/.style={thick},
+      dot/.style={fill=black, circle, inner sep=1.5pt}
+    ]
+
+    % Zařízení
+    \node[device] (master) {Master\\(MCU)};
+    \node[device, right=4cm of master] (slave) {Slave};
+
+    % OneWire Linka (Data)
+    \draw[bus] ($(master.east)+(0, 0.5)$) -- ($(slave.west)+(0, 0.5)$) node[midway, below] {DQ (Data)};
+
+    % Zem (GND)
+
+    \draw[bus] ($(master.east)+(0, -0.5)$) -- ($(slave.west)+(0, -0.5)$) node[midway, below] {GND};
+
+    % Symboly země (3 čárky pod sebou)
+    \foreach \d in {dev1, dev2} {
+      \begin{scope}[shift={($(master.east)+(0.4, -0.5)$)}]
+        \draw (0,0) -- (0,-0.2);
+        \draw (-0.3,-0.2) -- (0.3,-0.2);
+        \draw (-0.2,-0.3) -- (0.2,-0.3);
+        \draw (-0.1,-0.4) -- (0.1,-0.4);
+      \end{scope}
+
+      \begin{scope}[shift={($(slave.west)+(-0.4, -0.5)$)}]
+        \draw (0,0) -- (0,-0.2);
+        \draw (-0.3,-0.2) -- (0.3,-0.2);
+        \draw (-0.2,-0.3) -- (0.2,-0.3);
+        \draw (-0.1,-0.4) -- (0.1,-0.4);
+      \end{scope}
+    }
+
+    % Pull-up rezistor
+    \node (vcc) at ($(master.east)+(1.0, 2.0)$) {VCC};
+    \draw ($(master.east)+(1.0, 0.5)$) -- ($(master.east)+(1.0, 1.0)$);
+    \draw[fill=white] ($(master.east)+(0.7, 1.0)$) rectangle ($(master.east)+(1.3, 1.6)$) node[midway,
+    font={\tiny}] {$R_p$};
+    \draw ($(master.east)+(1.0, 1.6)$) -- (vcc);
+    \node[dot] at ($(master.east)+(1.0, 0.5)$) {};
+
+    % Propojení pinů
+    \node[font=\tiny, anchor=east] at ($(master.east)+(0, 0.5)$) {GPIO};
+    \node[font=\tiny, anchor=west] at ($(slave.west)+(0, 0.5)$) {DQ};
+
+  \end{tikzpicture}
+  \caption{Zapojení 1-Wire sběrnice}
+  \label{fig:onewire_diagram}
+\end{figure}
+
+Každé 1-Wire zařízení má v sobě z výroby vypálené unikátní 64-bitové identifikační číslo (ROM
+ID)~\cite{web:onewire}. Toto číslo slouží jako absolutní adresa, díky které může Master na jediné lince
+komunikovat s velkým množstvím zařízení, aniž by docházelo ke kolizím. Proces vyhledávání těchto adres na
+sběrnici (Enumeration) probíhá
+pomocí binárního stromu, kdy Master postupně eliminuje zařízení, dokud neidentifikuje všechna přítomná ID. To
+umožňuje dynamické připojování čidel bez nutnosti předchozí konfigurace systému.
+
+Zajímavou vlastností 1-Wire je možnost tzv. parazitního napájení. Zařízení jsou schopna čerpat energii přímo
+z datové linky v době, kdy je v logické jedničce, a ukládat ji do vnitřního kondenzátoru pro pokrytí spotřeby
+během krátkých okamžiků, kdy je linka v nule. V mikrokontrolerech se 1-Wire často implementuje softwarově
+(tzv. bit-banging) pomocí manipulace s GPIO piny, protože vyžaduje velmi precizní zpoždění v řádu
+mikrosekund. Některé pokročilejší MCU však disponují specializovanými hardwarovými řadiči nebo využívají pro
+emulaci časování periferii UART.
+
+\section{Ethernet}
+Ethernet představuje v kontextu mikrokontrolerů značný skok v komplexitě a možnostech komunikace. Jedná se o
+rodinu standardů definovanou normou \href{https://ieeexplore.ieee.org/document/9844436}{IEEE 802.3}, která na
+rozdíl od předchozích lokálních sběrnic slouží k
+propojování zařízení na větší vzdálenosti a v rámci rozsáhlejších sítí. Jeho nasazení je vhodné především
+tam, kde je potřeba zajistit spolehlivý přenos dat mimo hranice jedné desky plošných spojů a integrovat
+zařízení do existující síťové infrastruktury.
+
+Z hlediska hardwarové implementace je pro běžný mikrokontroler přímá generace signálů pro fyzickou vrstvu
+nereálná. Proto se v praxi využívá rozdělení kompetencí. Mikrokontroler může obsahovat blok pro řízení
+přístupu k médiu (\texttt{MAC}~\cite{web:ethernet}), ale samotný převod dat na signály fyzické vrstvy přenechává
+externímu obvodu, označovanému jako \texttt{PHY}~\cite{web:ethernet}. Tento přístup umožňuje procesoru
+pracovat s daty, aniž by musel řešit složitou modulaci signálu pro konkrétní přenosové médium.
+
+V oblasti vestavěných systémů nachází Ethernet využití specificky v roli nadřazených prvků nebo komunikačních
+bran (gateways). Typickám situace je případ, kdy centrální mikrokontroler sbírá data z lokálních
+senzorů pomocí jednodušších protokolů, jako jsou I2C nebo SPI, a Ethernet následně využívá k odeslání těchto
+agregovaných informací do nadřazeného systému. Slouží tedy jako výkonná linka pro připojení lokální
+elektroniky do větší sítě zařízení.
+
+\chapter{Závěr}
+V této práci jsme provedli soupis základních konceptů a informací potřebných pro pochopení nadcházejícího textu
+bakalářské práce. Museli jsme projít diplomovou práci popisující emulátor ZeroMate. Zde bylo třeba vytvořit popis
+celkové funkčnosti a hlavně popsat systém, kterým emulátor načítá externí periferie. Dále jsou zde obsáhlé popisy
+základních komunikačních protokolů, které se často objevují v mikrokontrolerech. Ty jsou důležité, pro vývoj
+komunikačního protokolu komunikační periferie, aby byla schopna tyto protokoly emulovat.
+
+\printbibliography[title={Literatura}]
+
+\end{document}
